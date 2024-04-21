@@ -676,9 +676,14 @@ else:
                             ' got %r' % cls)
         cls._is_runtime_protocol = True
 
-        # Only execute the following block if it's a typing_extensions.Protocol class.
-        # typing.Protocol classes don't need it.
-        if isinstance(cls, _ProtocolMeta):
+        # typing.Protocol classes on <=3.11 break if we execute this block,
+        # because typing.Protocol classes on <=3.11 don't have a
+        # `__protocol_attrs__` attribute, and this block relies on the
+        # `__protocol_attrs__` attribute. Meanwhile, typing.Protocol classes on 3.12.2+
+        # break if we *don't* execute this block, because *they* assume that all
+        # protocol classes have a `__non_callable_proto_members__` attribute
+        # (which this block sets)
+        if isinstance(cls, _ProtocolMeta) or sys.version_info >= (3, 12, 2):
             # PEP 544 prohibits using issubclass()
             # with protocols that have non-method members.
             # See gh-113320 for why we compute this attribute here,
@@ -2355,6 +2360,12 @@ else:  # <=3.10
         return obj
 
 
+if hasattr(typing, "_ASSERT_NEVER_REPR_MAX_LENGTH"):  # 3.11+
+    _ASSERT_NEVER_REPR_MAX_LENGTH = typing._ASSERT_NEVER_REPR_MAX_LENGTH
+else:  # <=3.10
+    _ASSERT_NEVER_REPR_MAX_LENGTH = 100
+
+
 if hasattr(typing, "assert_never"):  # 3.11+
     assert_never = typing.assert_never
 else:  # <=3.10
@@ -2378,7 +2389,10 @@ else:  # <=3.10
         At runtime, this throws an exception when called.
 
         """
-        raise AssertionError("Expected code to be unreachable")
+        value = repr(arg)
+        if len(value) > _ASSERT_NEVER_REPR_MAX_LENGTH:
+            value = value[:_ASSERT_NEVER_REPR_MAX_LENGTH] + '...'
+        raise AssertionError(f"Expected code to be unreachable, but got: {value}")
 
 
 if sys.version_info >= (3, 12):  # 3.12+

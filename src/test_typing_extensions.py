@@ -283,6 +283,19 @@ class AssertNeverTests(BaseTestCase):
         with self.assertRaises(AssertionError):
             assert_never(None)
 
+        value = "some value"
+        with self.assertRaisesRegex(AssertionError, value):
+            assert_never(value)
+
+        # Make sure a huge value doesn't get printed in its entirety
+        huge_value = "a" * 10000
+        with self.assertRaises(AssertionError) as cm:
+            assert_never(huge_value)
+        self.assertLess(
+            len(cm.exception.args[0]),
+            typing_extensions._ASSERT_NEVER_REPR_MAX_LENGTH * 2,
+        )
+
 
 class OverrideTests(BaseTestCase):
     def test_override(self):
@@ -3522,6 +3535,18 @@ class ProtocolTests(BaseTestCase):
             "Failed to determine whether protocol member 'evil' is a method member"
         )
         self.assertIs(type(exc.__cause__), CustomError)
+
+    def test_extensions_runtimecheckable_on_typing_Protocol(self):
+        @runtime_checkable
+        class Functor(typing.Protocol):
+            def foo(self) -> None: ...
+
+        self.assertNotIsSubclass(object, Functor)
+
+        class Bar:
+            def foo(self): pass
+
+        self.assertIsSubclass(Bar, Functor)
 
 
 class Point2DGeneric(Generic[T], TypedDict):
