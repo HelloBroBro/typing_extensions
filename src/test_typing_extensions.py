@@ -21,11 +21,6 @@ from pathlib import Path
 from unittest import TestCase, main, skipUnless, skipIf
 from unittest.mock import patch
 import typing
-from typing import Optional, Union, AnyStr
-from typing import T, KT, VT  # Not in __all__.
-from typing import Tuple, List, Set, Dict, Iterable, Iterator, Callable
-from typing import Generic
-from typing import no_type_check
 import warnings
 
 import typing_extensions
@@ -36,12 +31,15 @@ from typing_extensions import Protocol, runtime, runtime_checkable, Annotated, f
 from typing_extensions import TypeVarTuple, Unpack, dataclass_transform, reveal_type, Never, assert_never, LiteralString
 from typing_extensions import assert_type, get_type_hints, get_origin, get_args, get_original_bases
 from typing_extensions import clear_overloads, get_overloads, overload
-from typing_extensions import NamedTuple, TypeIs
+from typing_extensions import NamedTuple, TypeIs, no_type_check, Dict
 from typing_extensions import override, deprecated, Buffer, TypeAliasType, TypeVar, get_protocol_members, is_protocol
-from typing_extensions import Doc, NoDefault
+from typing_extensions import Doc, NoDefault, List, Union, AnyStr, Iterable, Generic, Optional, Set, Tuple, Callable
 from _typed_dict_test_helper import Foo, FooGeneric, VeryAnnotated
 
 NoneType = type(None)
+T = TypeVar("T")
+KT = TypeVar("KT")
+VT = TypeVar("VT")
 
 # Flags used to mark tests that only apply after a specific
 # version of the typing module.
@@ -67,7 +65,7 @@ skip_if_py313_beta_1 = skipIf(
 )
 
 ANN_MODULE_SOURCE = '''\
-from typing import Optional
+from typing import List, Optional
 from functools import wraps
 
 __annotations__[1] = 2
@@ -1590,12 +1588,92 @@ class CollectionsAbcTests(BaseTestCase):
         self.assertIsInstance(d, collections.Counter)
         self.assertIsInstance(d, typing_extensions.Counter)
 
-    def test_async_generator(self):
+
+# These are a separate TestCase class,
+# as (unlike most collections.abc aliases in typing_extensions),
+# these are reimplemented on Python <=3.12 so that we can provide
+# default values for the second and third parameters
+class GeneratorTests(BaseTestCase):
+
+    def test_generator_basics(self):
+        def foo():
+            yield 42
+        g = foo()
+
+        self.assertIsInstance(g, typing_extensions.Generator)
+        self.assertNotIsInstance(foo, typing_extensions.Generator)
+        self.assertIsSubclass(type(g), typing_extensions.Generator)
+        self.assertNotIsSubclass(type(foo), typing_extensions.Generator)
+
+        parameterized = typing_extensions.Generator[int, str, None]
+        with self.assertRaises(TypeError):
+            isinstance(g, parameterized)
+        with self.assertRaises(TypeError):
+            issubclass(type(g), parameterized)
+
+    def test_generator_default(self):
+        g1 = typing_extensions.Generator[int]
+        g2 = typing_extensions.Generator[int, None, None]
+        self.assertEqual(get_args(g1), (int, type(None), type(None)))
+        self.assertEqual(get_args(g1), get_args(g2))
+
+        g3 = typing_extensions.Generator[int, float]
+        g4 = typing_extensions.Generator[int, float, None]
+        self.assertEqual(get_args(g3), (int, float, type(None)))
+        self.assertEqual(get_args(g3), get_args(g4))
+
+    def test_no_generator_instantiation(self):
+        with self.assertRaises(TypeError):
+            typing_extensions.Generator()
+        with self.assertRaises(TypeError):
+            typing_extensions.Generator[T, T, T]()
+        with self.assertRaises(TypeError):
+            typing_extensions.Generator[int, int, int]()
+
+    def test_subclassing_generator(self):
+        class G(typing_extensions.Generator[int, int, None]):
+            def send(self, value):
+                pass
+            def throw(self, typ, val=None, tb=None):
+                pass
+
+        def g(): yield 0
+
+        self.assertIsSubclass(G, typing_extensions.Generator)
+        self.assertIsSubclass(G, typing_extensions.Iterable)
+        self.assertIsSubclass(G, collections.abc.Generator)
+        self.assertIsSubclass(G, collections.abc.Iterable)
+        self.assertNotIsSubclass(type(g), G)
+
+        instance = G()
+        self.assertIsInstance(instance, typing_extensions.Generator)
+        self.assertIsInstance(instance, typing_extensions.Iterable)
+        self.assertIsInstance(instance, collections.abc.Generator)
+        self.assertIsInstance(instance, collections.abc.Iterable)
+        self.assertNotIsInstance(type(g), G)
+        self.assertNotIsInstance(g, G)
+
+    def test_async_generator_basics(self):
         async def f():
             yield 42
-
         g = f()
+
+        self.assertIsInstance(g, typing_extensions.AsyncGenerator)
         self.assertIsSubclass(type(g), typing_extensions.AsyncGenerator)
+        self.assertNotIsInstance(f, typing_extensions.AsyncGenerator)
+        self.assertNotIsSubclass(type(f), typing_extensions.AsyncGenerator)
+
+        parameterized = typing_extensions.AsyncGenerator[int, str]
+        with self.assertRaises(TypeError):
+            isinstance(g, parameterized)
+        with self.assertRaises(TypeError):
+            issubclass(type(g), parameterized)
+
+    def test_async_generator_default(self):
+        ag1 = typing_extensions.AsyncGenerator[int]
+        ag2 = typing_extensions.AsyncGenerator[int, None]
+        self.assertEqual(get_args(ag1), (int, type(None)))
+        self.assertEqual(get_args(ag1), get_args(ag2))
 
     def test_no_async_generator_instantiation(self):
         with self.assertRaises(TypeError):
@@ -1628,16 +1706,67 @@ class CollectionsAbcTests(BaseTestCase):
         self.assertNotIsInstance(type(g), G)
         self.assertNotIsInstance(g, G)
 
-    def test_generator_default(self):
-        g1 = typing_extensions.Generator[int]
-        g2 = typing_extensions.Generator[int, None, None]
-        self.assertEqual(get_args(g1), (int, type(None), type(None)))
-        self.assertEqual(get_args(g1), get_args(g2))
+    def test_subclassing_subclasshook(self):
 
-        g3 = typing_extensions.Generator[int, float]
-        g4 = typing_extensions.Generator[int, float, None]
-        self.assertEqual(get_args(g3), (int, float, type(None)))
-        self.assertEqual(get_args(g3), get_args(g4))
+        class Base(typing_extensions.Generator):
+            @classmethod
+            def __subclasshook__(cls, other):
+                if other.__name__ == 'Foo':
+                    return True
+                else:
+                    return False
+
+        class C(Base): ...
+        class Foo: ...
+        class Bar: ...
+        self.assertIsSubclass(Foo, Base)
+        self.assertIsSubclass(Foo, C)
+        self.assertNotIsSubclass(Bar, C)
+
+    def test_subclassing_register(self):
+
+        class A(typing_extensions.Generator): ...
+        class B(A): ...
+
+        class C: ...
+        A.register(C)
+        self.assertIsSubclass(C, A)
+        self.assertNotIsSubclass(C, B)
+
+        class D: ...
+        B.register(D)
+        self.assertIsSubclass(D, A)
+        self.assertIsSubclass(D, B)
+
+        class M(): ...
+        collections.abc.Generator.register(M)
+        self.assertIsSubclass(M, typing_extensions.Generator)
+
+    def test_collections_as_base(self):
+
+        class M(collections.abc.Generator): ...
+        self.assertIsSubclass(M, typing_extensions.Generator)
+        self.assertIsSubclass(M, typing_extensions.Iterable)
+
+        class S(collections.abc.AsyncGenerator): ...
+        self.assertIsSubclass(S, typing_extensions.AsyncGenerator)
+        self.assertIsSubclass(S, typing_extensions.AsyncIterator)
+
+        class A(collections.abc.Generator, metaclass=abc.ABCMeta): ...
+        class B: ...
+        A.register(B)
+        self.assertIsSubclass(B, typing_extensions.Generator)
+
+    @skipIf(sys.version_info < (3, 10), "PEP 604 has yet to be")
+    def test_or_and_ror(self):
+        self.assertEqual(
+            typing_extensions.Generator | typing_extensions.AsyncGenerator,
+            Union[typing_extensions.Generator, typing_extensions.AsyncGenerator]
+        )
+        self.assertEqual(
+            typing_extensions.Generator | typing.Deque,
+            Union[typing_extensions.Generator, typing.Deque]
+        )
 
 
 class OtherABCTests(BaseTestCase):
