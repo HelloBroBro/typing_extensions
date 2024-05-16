@@ -6380,6 +6380,14 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         self.assertIs(P_default.__default__, ...)
         self.assertTrue(P_default.has_default())
 
+    def test_paramspec_none(self):
+        U = ParamSpec('U')
+        U_None = ParamSpec('U_None', default=None)
+        self.assertIs(U.__default__, NoDefault)
+        self.assertFalse(U.has_default())
+        self.assertIs(U_None.__default__, None)
+        self.assertTrue(U_None.has_default())
+
     def test_typevartuple(self):
         Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
         self.assertEqual(Ts.__default__, Unpack[Tuple[str, int]])
@@ -6394,7 +6402,26 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         class A(Generic[Unpack[Ts]]): ...
         Alias = Optional[Unpack[Ts]]
 
-    def test_erroneous_generic(self):
+    def test_no_default_after_typevar_tuple(self):
+        T = TypeVar("T", default=int)
+        Ts = TypeVarTuple("Ts")
+        Ts_default = TypeVarTuple("Ts_default", default=Unpack[Tuple[str, int]])
+
+        with self.assertRaises(TypeError):
+            class X(Generic[Unpack[Ts], T]): ...
+
+        with self.assertRaises(TypeError):
+            class Y(Generic[Unpack[Ts_default], T]): ...
+
+    def test_typevartuple_none(self):
+        U = TypeVarTuple('U')
+        U_None = TypeVarTuple('U_None', default=None)
+        self.assertIs(U.__default__, NoDefault)
+        self.assertFalse(U.has_default())
+        self.assertIs(U_None.__default__, None)
+        self.assertTrue(U_None.has_default())
+
+    def test_no_default_after_non_default(self):
         DefaultStrT = typing_extensions.TypeVar('DefaultStrT', default=str)
         T = TypeVar('T')
 
@@ -6430,6 +6457,25 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
                 self.assertEqual(z.__bound__, typevar.__bound__)
                 self.assertEqual(z.__default__, typevar.__default__)
 
+    @skip_if_py313_beta_1
+    def test_allow_default_after_non_default_in_alias(self):
+        T_default = TypeVar('T_default', default=int)
+        T = TypeVar('T')
+        Ts = TypeVarTuple('Ts')
+
+        a1 = Callable[[T_default], T]
+        self.assertEqual(a1.__args__, (T_default, T))
+
+        if sys.version_info >= (3, 9):
+            a2 = dict[T_default, T]
+            self.assertEqual(a2.__args__, (T_default, T))
+
+        a3 = typing.Dict[T_default, T]
+        self.assertEqual(a3.__args__, (T_default, T))
+
+        a4 = Callable[[Unpack[Ts]], T]
+        self.assertEqual(a4.__args__, (Unpack[Ts], T))
+
 
 class NoDefaultTests(BaseTestCase):
     @skip_if_py313_beta_1
@@ -6438,6 +6484,10 @@ class NoDefaultTests(BaseTestCase):
             s = pickle.dumps(NoDefault, proto)
             loaded = pickle.loads(s)
             self.assertIs(NoDefault, loaded)
+
+    @skip_if_py313_beta_1
+    def test_doc(self):
+        self.assertIsInstance(NoDefault.__doc__, str)
 
     def test_constructor(self):
         self.assertIs(NoDefault, type(NoDefault)())
@@ -6455,6 +6505,14 @@ class NoDefaultTests(BaseTestCase):
     def test_immutable(self):
         with self.assertRaises(AttributeError):
             NoDefault.foo = 'bar'
+        with self.assertRaises(AttributeError):
+            NoDefault.foo
+
+        # TypeError is consistent with the behavior of NoneType
+        with self.assertRaises(TypeError):
+            type(NoDefault).foo = 3
+        with self.assertRaises(AttributeError):
+            type(NoDefault).foo
 
 
 class TypeVarInferVarianceTests(BaseTestCase):

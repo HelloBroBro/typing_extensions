@@ -11,6 +11,13 @@
   at runtime rather than `types.NoneType`.
 - Fix most tests for `TypeVar`, `ParamSpec` and `TypeVarTuple` on Python
   3.13.0b1 and newer.
+- Backport CPython PR [#118774](https://github.com/python/cpython/pull/118774),
+  allowing type parameters without default values to follow those with
+  default values in some type parameter lists. Patch by Alex Waygood,
+  backporting a CPython PR by Jelle Zijlstra.
+- It is now disallowed to use a `TypeVar` with a default value after a
+  `TypeVarTuple` in a type parameter list. This matches the CPython
+  implementation of PEP 696 on Python 3.13+.
 - Fix `Protocol` tests on Python 3.13.0a6 and newer. 3.13.0a6 adds a new
   `__static_attributes__` attribute to all classes in Python,
   which broke some assumptions made by the implementation of
