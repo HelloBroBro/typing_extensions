@@ -1,5 +1,4 @@
 import sys
-import os
 import abc
 import gc
 import io
@@ -4997,7 +4996,7 @@ class ParamSpecTests(BaseTestCase):
         P = ParamSpec('P')
         P_co = ParamSpec('P_co', covariant=True)
         P_contra = ParamSpec('P_contra', contravariant=True)
-        P_default = ParamSpec('P_default', default=int)
+        P_default = ParamSpec('P_default', default=[int])
         for proto in range(pickle.HIGHEST_PROTOCOL):
             with self.subTest(f'Pickle protocol {proto}'):
                 for paramspec in (P, P_co, P_contra, P_default):
@@ -5718,8 +5717,7 @@ class AllTests(BaseTestCase):
                     getattr(typing, item))
 
     def test_typing_extensions_compiles_with_opt(self):
-        file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                 'typing_extensions.py')
+        file_path = typing_extensions.__file__
         try:
             subprocess.check_output(f'{sys.executable} -OO {file_path}',
                                     stderr=subprocess.STDOUT,
@@ -6363,8 +6361,8 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         self.assertTrue(U_None.has_default())
 
     def test_paramspec(self):
-        P = ParamSpec('P', default=(str, int))
-        self.assertEqual(P.__default__, (str, int))
+        P = ParamSpec('P', default=[str, int])
+        self.assertEqual(P.__default__, [str, int])
         self.assertTrue(P.has_default())
         self.assertIsInstance(P, ParamSpec)
         if hasattr(typing, "ParamSpec"):
@@ -6401,6 +6399,34 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
 
         class A(Generic[Unpack[Ts]]): ...
         Alias = Optional[Unpack[Ts]]
+
+    @skipIf(
+        sys.version_info < (3, 11, 1),
+        "Not yet backported for older versions of Python"
+    )
+    def test_typevartuple_specialization(self):
+        T = TypeVar("T")
+        Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
+        self.assertEqual(Ts.__default__, Unpack[Tuple[str, int]])
+        class A(Generic[T, Unpack[Ts]]): ...
+        self.assertEqual(A[float].__args__, (float, str, int))
+        self.assertEqual(A[float, range].__args__, (float, range))
+        self.assertEqual(A[float, Unpack[tuple[int, ...]]].__args__, (float, Unpack[tuple[int, ...]]))
+
+    @skipIf(
+        sys.version_info < (3, 11, 1),
+        "Not yet backported for older versions of Python"
+    )
+    def test_typevar_and_typevartuple_specialization(self):
+        T = TypeVar("T")
+        U = TypeVar("U", default=float)
+        Ts = TypeVarTuple('Ts', default=Unpack[Tuple[str, int]])
+        self.assertEqual(Ts.__default__, Unpack[Tuple[str, int]])
+        class A(Generic[T, U, Unpack[Ts]]): ...
+        self.assertEqual(A[int].__args__, (int, float, str, int))
+        self.assertEqual(A[int, str].__args__, (int, str, str, int))
+        self.assertEqual(A[int, str, range].__args__, (int, str, range))
+        self.assertEqual(A[int, str, Unpack[tuple[int, ...]]].__args__, (int, str, Unpack[tuple[int, ...]]))
 
     def test_no_default_after_typevar_tuple(self):
         T = TypeVar("T", default=int)
@@ -6457,6 +6483,17 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
                 self.assertEqual(z.__bound__, typevar.__bound__)
                 self.assertEqual(z.__default__, typevar.__default__)
 
+    def test_strange_defaults_are_allowed(self):
+        # Leave it to type checkers to check whether strange default values
+        # should be allowed or disallowed
+        def not_a_type(): ...
+
+        for typevarlike_cls in TypeVar, ParamSpec, TypeVarTuple:
+            for default in not_a_type, 42, bytearray(), (int, not_a_type, 42):
+                with self.subTest(typevarlike_cls=typevarlike_cls, default=default):
+                    T = typevarlike_cls("T", default=default)
+                    self.assertEqual(T.__default__, default)
+
     @skip_if_py313_beta_1
     def test_allow_default_after_non_default_in_alias(self):
         T_default = TypeVar('T_default', default=int)
@@ -6475,6 +6512,46 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
 
         a4 = Callable[[Unpack[Ts]], T]
         self.assertEqual(a4.__args__, (Unpack[Ts], T))
+
+    @skipIf(
+        sys.version_info < (3, 11, 1),
+        "Not yet backported for older versions of Python"
+    )
+    def test_paramspec_specialization(self):
+        T = TypeVar("T")
+        P = ParamSpec('P', default=[str, int])
+        self.assertEqual(P.__default__, [str, int])
+        class A(Generic[T, P]): ...
+        self.assertEqual(A[float].__args__, (float, (str, int)))
+        self.assertEqual(A[float, [range]].__args__, (float, (range,)))
+
+    @skipIf(
+        sys.version_info < (3, 11, 1),
+        "Not yet backported for older versions of Python"
+    )
+    def test_typevar_and_paramspec_specialization(self):
+        T = TypeVar("T")
+        U = TypeVar("U", default=float)
+        P = ParamSpec('P', default=[str, int])
+        self.assertEqual(P.__default__, [str, int])
+        class A(Generic[T, U, P]): ...
+        self.assertEqual(A[float].__args__, (float, float, (str, int)))
+        self.assertEqual(A[float, int].__args__, (float, int, (str, int)))
+        self.assertEqual(A[float, int, [range]].__args__, (float, int, (range,)))
+
+    @skipIf(
+        sys.version_info < (3, 11, 1),
+        "Not yet backported for older versions of Python"
+    )
+    def test_paramspec_and_typevar_specialization(self):
+        T = TypeVar("T")
+        P = ParamSpec('P', default=[str, int])
+        U = TypeVar("U", default=float)
+        self.assertEqual(P.__default__, [str, int])
+        class A(Generic[T, P, U]): ...
+        self.assertEqual(A[float].__args__, (float, (str, int), float))
+        self.assertEqual(A[float, [range]].__args__, (float, (range,), float))
+        self.assertEqual(A[float, [range], int].__args__, (float, (range,), int))
 
 
 class NoDefaultTests(BaseTestCase):
