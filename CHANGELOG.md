@@ -1,3 +1,14 @@
+# Release 4.12.0 (May 23, 2024)
+
+This release is mostly the same as 4.12.0rc1 but fixes one more
+longstanding bug.
+
+- Fix incorrect behaviour of `typing_extensions.ParamSpec` on Python 3.8 and
+  3.9 that meant that
+  `isinstance(typing_extensions.ParamSpec("P"), typing.TypeVar)` would have a
+  different result in some situations depending on whether or not a profiling
+  function had been set using `sys.setprofile`. Patch by Alex Waygood.
+
 # Release 4.12.0rc1 (May 16, 2024)
 
 This release focuses on compatibility with the upcoming release of
