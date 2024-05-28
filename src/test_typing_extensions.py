@@ -29,7 +29,7 @@ from typing_extensions import Awaitable, AsyncIterator, AsyncContextManager, Req
 from typing_extensions import Protocol, runtime, runtime_checkable, Annotated, final, is_typeddict
 from typing_extensions import TypeVarTuple, Unpack, dataclass_transform, reveal_type, Never, assert_never, LiteralString
 from typing_extensions import assert_type, get_type_hints, get_origin, get_args, get_original_bases
-from typing_extensions import clear_overloads, get_overloads, overload
+from typing_extensions import clear_overloads, get_overloads, overload, Iterator
 from typing_extensions import NamedTuple, TypeIs, no_type_check, Dict
 from typing_extensions import override, deprecated, Buffer, TypeAliasType, TypeVar, get_protocol_members, is_protocol
 from typing_extensions import Doc, NoDefault, List, Union, AnyStr, Iterable, Generic, Optional, Set, Tuple, Callable
@@ -64,10 +64,14 @@ skip_if_py313_beta_1 = skipIf(
 )
 
 ANN_MODULE_SOURCE = '''\
+import sys
 from typing import List, Optional
 from functools import wraps
 
-__annotations__[1] = 2
+try:
+    __annotations__[1] = 2
+except NameError:
+    assert sys.version_info >= (3, 14)
 
 class C:
 
@@ -77,8 +81,10 @@ from typing import Tuple
 x: int = 5; y: str = x; f: Tuple[int, int]
 
 class M(type):
-
-    __annotations__['123'] = 123
+    try:
+        __annotations__['123'] = 123
+    except NameError:
+        assert sys.version_info >= (3, 14)
     o: type = object
 
 (pars): bool = True
@@ -220,7 +226,7 @@ class BottomTypeTestsMixin:
             class A(self.bottom_type):
                 pass
         with self.assertRaises(TypeError):
-            class A(type(self.bottom_type)):
+            class B(type(self.bottom_type)):
                 pass
 
     def test_cannot_instantiate(self):
@@ -321,7 +327,6 @@ class OverrideTests(BaseTestCase):
             @staticmethod
             def static_method_bad_order():
                 return 42
-
 
         self.assertIsSubclass(Derived, Base)
         instance = Derived()
@@ -685,7 +690,7 @@ class ClassVarTests(BaseTestCase):
             class C(type(ClassVar)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(ClassVar[int])):
+            class D(type(ClassVar[int])):
                 pass
 
     def test_cannot_init(self):
@@ -726,7 +731,7 @@ class FinalTests(BaseTestCase):
             class C(type(Final)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(Final[int])):
+            class D(type(Final[int])):
                 pass
 
     def test_cannot_init(self):
@@ -771,7 +776,7 @@ class RequiredTests(BaseTestCase):
             class C(type(Required)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(Required[int])):
+            class D(type(Required[int])):
                 pass
 
     def test_cannot_init(self):
@@ -816,7 +821,7 @@ class NotRequiredTests(BaseTestCase):
             class C(type(NotRequired)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(NotRequired[int])):
+            class D(type(NotRequired[int])):
                 pass
 
     def test_cannot_init(self):
@@ -836,15 +841,15 @@ class NotRequiredTests(BaseTestCase):
 
 class IntVarTests(BaseTestCase):
     def test_valid(self):
-        T_ints = IntVar("T_ints")
+        IntVar("T_ints")
 
     def test_invalid(self):
         with self.assertRaises(TypeError):
-            T_ints = IntVar("T_ints", int)
+            IntVar("T_ints", int)
         with self.assertRaises(TypeError):
-            T_ints = IntVar("T_ints", bound=int)
+            IntVar("T_ints", bound=int)
         with self.assertRaises(TypeError):
-            T_ints = IntVar("T_ints", covariant=True)
+            IntVar("T_ints", covariant=True)
 
 
 class LiteralTests(BaseTestCase):
@@ -1191,7 +1196,6 @@ class ACM:
         return None
 
 
-
 class A:
     y: float
 class B(A):
@@ -1312,7 +1316,10 @@ class GetTypeHintTests(BaseTestCase):
             del sys.modules[modname]
 
     def test_get_type_hints_modules(self):
-        ann_module_type_hints = {1: 2, 'f': Tuple[int, int], 'x': int, 'y': str}
+        if sys.version_info >= (3, 14):
+            ann_module_type_hints = {'f': Tuple[int, int], 'x': int, 'y': str}
+        else:
+            ann_module_type_hints = {1: 2, 'f': Tuple[int, int], 'x': int, 'y': str}
         self.assertEqual(gth(self.ann_module), ann_module_type_hints)
         self.assertEqual(gth(self.ann_module2), {})
         self.assertEqual(gth(self.ann_module3), {})
@@ -1321,7 +1328,10 @@ class GetTypeHintTests(BaseTestCase):
         self.assertEqual(gth(self.ann_module.C, self.ann_module.__dict__),
                          {'y': Optional[self.ann_module.C]})
         self.assertIsInstance(gth(self.ann_module.j_class), dict)
-        self.assertEqual(gth(self.ann_module.M), {'123': 123, 'o': type})
+        if sys.version_info >= (3, 14):
+            self.assertEqual(gth(self.ann_module.M), {'o': type})
+        else:
+            self.assertEqual(gth(self.ann_module.M), {'123': 123, 'o': type})
         self.assertEqual(gth(self.ann_module.D),
                          {'j': str, 'k': str, 'y': Optional[self.ann_module.C]})
         self.assertEqual(gth(self.ann_module.Y), {'z': int})
@@ -1336,7 +1346,7 @@ class GetTypeHintTests(BaseTestCase):
         @no_type_check
         class NoTpCheck:
             class Inn:
-                def __init__(self, x: 'not a type'): ...
+                def __init__(self, x: 'not a type'): ...  # noqa: F722  # (yes, there's a syntax error in this annotation, that's the point)
         self.assertTrue(NoTpCheck.__no_type_check__)
         self.assertTrue(NoTpCheck.Inn.__init__.__no_type_check__)
         self.assertEqual(gth(self.ann_module2.NTC.meth), {})
@@ -2034,10 +2044,10 @@ class ProtocolTests(BaseTestCase):
             class P(C, Protocol):
                 pass
         with self.assertRaises(TypeError):
-            class P(Protocol, C):
+            class Q(Protocol, C):
                 pass
         with self.assertRaises(TypeError):
-            class P(BP, C, Protocol):
+            class R(BP, C, Protocol):
                 pass
         class D(BP, C): pass
         class E(C, BP): pass
@@ -2350,7 +2360,7 @@ class ProtocolTests(BaseTestCase):
             meth: Callable[[], None]
             meth2: Callable[[int, str], bool]
             def meth(self): pass
-            def meth(self, x, y): return True
+            def meth2(self, x, y): return True
 
         self.assertNotIsSubclass(AnnotatedButNotAProtocol, CallableMembersProto)
         self.assertIsSubclass(NotAProtocolButAnImplicitSubclass, CallableMembersProto)
@@ -2994,7 +3004,7 @@ class ProtocolTests(BaseTestCase):
 
         acceptable_extra_attrs = {
             '_is_protocol', '_is_runtime_protocol', '__parameters__',
-            '__init__', '__annotations__', '__subclasshook__',
+            '__init__', '__annotations__', '__subclasshook__', '__annotate__'
         }
         self.assertLessEqual(vars(NonP).keys(), vars(C).keys() | acceptable_extra_attrs)
         self.assertLessEqual(
@@ -3196,11 +3206,11 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             class P(Protocol[T, T]): pass
         with self.assertRaises(TypeError):
-            class P(Protocol[int]): pass
+            class P2(Protocol[int]): pass
         with self.assertRaises(TypeError):
-            class P(Protocol[T], Protocol[S]): pass
+            class P3(Protocol[T], Protocol[S]): pass
         with self.assertRaises(TypeError):
-            class P(typing.Mapping[T, S], Protocol[T]): pass
+            class P4(typing.Mapping[T, S], Protocol[T]): pass
 
     def test_generic_protocols_repr(self):
         T = TypeVar('T')
@@ -3735,9 +3745,8 @@ class TypedDictTests(BaseTestCase):
 
     @skipIf(sys.version_info < (3, 13), "Change in behavior in 3.13")
     def test_keywords_syntax_raises_on_3_13(self):
-        with self.assertRaises(TypeError):
-            with self.assertWarns(DeprecationWarning):
-                Emp = TypedDict('Emp', name=str, id=int)
+        with self.assertRaises(TypeError), self.assertWarns(DeprecationWarning):
+            TypedDict('Emp', name=str, id=int)
 
     @skipIf(sys.version_info >= (3, 13), "3.13 removes support for kwargs")
     def test_basics_keywords_syntax(self):
@@ -4177,7 +4186,6 @@ class TypedDictTests(BaseTestCase):
         }
         with self.assertRaises(TypeError):
             C[str]
-
 
         class Point3D(Point2DGeneric[T], Generic[T, KT]):
             c: KT
@@ -4826,7 +4834,7 @@ class TypeAliasTests(BaseTestCase):
         exec('Alias: TypeAlias = Employee', globals(), ns)
 
     def test_canonical_usage_with_type_comment(self):
-        Alias: TypeAlias = Employee
+        Alias: TypeAlias = Employee  # noqa: F841
 
     def test_cannot_instantiate(self):
         with self.assertRaises(TypeError):
@@ -4849,7 +4857,7 @@ class TypeAliasTests(BaseTestCase):
                 pass
 
         with self.assertRaises(TypeError):
-            class C(type(TypeAlias)):
+            class D(type(TypeAlias)):
                 pass
 
     def test_repr(self):
@@ -5078,11 +5086,15 @@ class ConcatenateTests(BaseTestCase):
 
         C1 = Callable[Concatenate[int, P], int]
         C2 = Callable[Concatenate[int, T, P], T]
+        self.assertEqual(C1.__origin__, C2.__origin__)
+        self.assertNotEqual(C1, C2)
 
         # Test collections.abc.Callable too.
         if sys.version_info[:2] >= (3, 9):
             C3 = collections.abc.Callable[Concatenate[int, P], int]
             C4 = collections.abc.Callable[Concatenate[int, T, P], T]
+            self.assertEqual(C3.__origin__, C4.__origin__)
+            self.assertNotEqual(C3, C4)
 
     def test_invalid_uses(self):
         P = ParamSpec('P')
@@ -5152,7 +5164,7 @@ class TypeGuardTests(BaseTestCase):
             class C(type(TypeGuard)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(TypeGuard[int])):
+            class D(type(TypeGuard[int])):
                 pass
 
     def test_cannot_init(self):
@@ -5196,7 +5208,7 @@ class TypeIsTests(BaseTestCase):
             class C(type(TypeIs)):
                 pass
         with self.assertRaises(TypeError):
-            class C(type(TypeIs[int])):
+            class D(type(TypeIs[int])):
                 pass
 
     def test_cannot_init(self):
@@ -5242,7 +5254,7 @@ class LiteralStringTests(BaseTestCase):
             class C(type(LiteralString)):
                 pass
         with self.assertRaises(TypeError):
-            class C(LiteralString):
+            class D(LiteralString):
                 pass
 
     def test_cannot_init(self):
@@ -5785,17 +5797,6 @@ class XMeth(NamedTuple):
         return 2 * self.x
 
 
-class XRepr(NamedTuple):
-    x: int
-    y: int = 1
-
-    def __str__(self):
-        return f'{self.x} -> {self.y}'
-
-    def __add__(self, other):
-        return 0
-
-
 class NamedTupleTests(BaseTestCase):
     class NestedEmployee(NamedTuple):
         name: str
@@ -5887,11 +5888,11 @@ class NamedTupleTests(BaseTestCase):
             TypeError,
             'can only inherit from a NamedTuple type and Generic'
         ):
-            class X(NamedTuple, tuple):
+            class Y(NamedTuple, tuple):
                 x: int
 
         with self.assertRaisesRegex(TypeError, 'duplicate base class'):
-            class X(NamedTuple, NamedTuple):
+            class Z(NamedTuple, NamedTuple):
                 x: int
 
         class A(NamedTuple):
@@ -5900,7 +5901,7 @@ class NamedTupleTests(BaseTestCase):
             TypeError,
             'can only inherit from a NamedTuple type and Generic'
         ):
-            class X(NamedTuple, A):
+            class XX(NamedTuple, A):
                 y: str
 
     def test_generic(self):
@@ -6156,11 +6157,6 @@ class NamedTupleTests(BaseTestCase):
                 attr = annoying
         namedtuple_exception = cm.exception
 
-        expected_note = (
-            "Error calling __set_name__ on 'Annoying' instance "
-            "'attr' in 'NamedTupleClass'"
-        )
-
         self.assertIs(type(namedtuple_exception), RuntimeError)
         self.assertIs(type(namedtuple_exception), type(normal_exception))
         self.assertEqual(len(namedtuple_exception.args), len(normal_exception.args))
@@ -6316,8 +6312,8 @@ class TypeVarTests(BaseTestCase):
             X = TypeVar('X')
             # use a string because str doesn't implement
             # __or__/__ror__ itself
-            self.assertEqual(X | "x", Union[X, "x"])
-            self.assertEqual("x" | X, Union["x", X])
+            self.assertEqual(X | "x", Union[X, "x"])  # noqa: F821
+            self.assertEqual("x" | X, Union["x", X])  # noqa: F821
             # make sure the order is correct
             self.assertEqual(get_args(X | "x"), (X, typing.ForwardRef("x")))
             self.assertEqual(get_args("x" | X), (typing.ForwardRef("x"), X))
@@ -6345,7 +6341,7 @@ class TypeVarTests(BaseTestCase):
             class V(TypeVar): pass
         T = TypeVar("T")
         with self.assertRaises(TypeError):
-            class V(T): pass
+            class W(T): pass
 
     def test_cannot_instantiate_vars(self):
         with self.assertRaises(TypeError):
@@ -6392,7 +6388,7 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         self.assertIsInstance(typing_T, typing_extensions.TypeVar)
 
         class A(Generic[T]): ...
-        Alias = Optional[T]
+        self.assertEqual(Optional[T].__args__, (T, type(None)))
 
     def test_typevar_none(self):
         U = typing_extensions.TypeVar('U')
@@ -6414,7 +6410,7 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
             self.assertIsInstance(typing_P, ParamSpec)
 
         class A(Generic[P]): ...
-        Alias = typing.Callable[P, None]
+        self.assertEqual(typing.Callable[P, None].__args__, (P, type(None)))
 
         P_default = ParamSpec('P_default', default=...)
         self.assertIs(P_default.__default__, ...)
@@ -6440,7 +6436,7 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
             self.assertIsInstance(typing_Ts, TypeVarTuple)
 
         class A(Generic[Unpack[Ts]]): ...
-        Alias = Optional[Unpack[Ts]]
+        self.assertEqual(Optional[Unpack[Ts]].__args__, (Unpack[Ts], type(None)))
 
     @skipIf(
         sys.version_info < (3, 11, 1),
@@ -6494,7 +6490,7 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         T = TypeVar('T')
 
         with self.assertRaises(TypeError):
-            Test = Generic[DefaultStrT, T]
+            Generic[DefaultStrT, T]
 
     def test_need_more_params(self):
         DefaultStrT = typing_extensions.TypeVar('DefaultStrT', default=str)
@@ -6508,7 +6504,7 @@ class TypeVarLikeDefaultsTests(BaseTestCase):
         with self.assertRaises(
             TypeError, msg="Too few arguments for .+; actual 1, expected at least 2"
         ):
-            Test = A[int]
+            A[int]
 
     def test_pickle(self):
         global U, U_co, U_contra, U_default  # pickle wants to reference the class by name
