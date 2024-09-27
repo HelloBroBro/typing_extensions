@@ -7247,6 +7247,57 @@ class TypeAliasTypeTests(BaseTestCase):
         self.assertEqual(get_args(fully_subscripted), (Iterable[float],))
         self.assertIs(get_origin(fully_subscripted), ListOrSetT)
 
+    def test_unpack_parameter_collection(self):
+        Ts = TypeVarTuple("Ts")
+
+        class Foo(Generic[Unpack[Ts]]):
+            bar: Tuple[Unpack[Ts]]
+
+        FooAlias = TypeAliasType("FooAlias", Foo[Unpack[Ts]], type_params=(Ts,))
+        self.assertEqual(FooAlias[Unpack[Tuple[str]]].__parameters__, ())
+        self.assertEqual(FooAlias[Unpack[Tuple[T]]].__parameters__, (T,))
+
+        P = ParamSpec("P")
+        CallableP = TypeAliasType("CallableP", Callable[P, Any], type_params=(P,))
+        call_int_T = CallableP[Unpack[Tuple[int, T]]]
+        self.assertEqual(call_int_T.__parameters__, (T,))
+
+    def test_alias_attributes(self):
+        T = TypeVar('T')
+        T2 = TypeVar('T2')
+        ListOrSetT = TypeAliasType("ListOrSetT", Union[List[T], Set[T]], type_params=(T,))
+
+        subscripted = ListOrSetT[int]
+        self.assertEqual(subscripted.__module__, ListOrSetT.__module__)
+        self.assertEqual(subscripted.__name__, "ListOrSetT")
+        self.assertEqual(subscripted.__value__, Union[List[T], Set[T]])
+        self.assertEqual(subscripted.__type_params__, (T,))
+
+        still_generic = ListOrSetT[Iterable[T2]]
+        self.assertEqual(still_generic.__module__, ListOrSetT.__module__)
+        self.assertEqual(still_generic.__name__, "ListOrSetT")
+        self.assertEqual(still_generic.__value__, Union[List[T], Set[T]])
+        self.assertEqual(still_generic.__type_params__, (T,))
+
+        fully_subscripted = still_generic[float]
+        self.assertEqual(fully_subscripted.__module__, ListOrSetT.__module__)
+        self.assertEqual(fully_subscripted.__name__, "ListOrSetT")
+        self.assertEqual(fully_subscripted.__value__, Union[List[T], Set[T]])
+        self.assertEqual(fully_subscripted.__type_params__, (T,))
+
+    def test_subscription_without_type_params(self):
+        Simple = TypeAliasType("Simple", int)
+        with self.assertRaises(TypeError, msg="Only generic type aliases are subscriptable"):
+            Simple[int]
+
+        # A TypeVar in the value does not allow subscription
+        T = TypeVar('T')
+        MissingTypeParamsErr = TypeAliasType("MissingTypeParamsErr", List[T])
+        self.assertEqual(MissingTypeParamsErr.__type_params__, ())
+        self.assertEqual(MissingTypeParamsErr.__parameters__, ())
+        with self.assertRaises(TypeError, msg="Only generic type aliases are subscriptable"):
+            MissingTypeParamsErr[int]
+
     def test_pickle(self):
         global Alias
         Alias = TypeAliasType("Alias", int)
